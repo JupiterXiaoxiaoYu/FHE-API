@@ -1,0 +1,22 @@
+[build]
+jobs = 8  # 设置为你 CPU 的核心数
+incremental = true
+rustc-wrapper = "sccache"  # 如果你安装了 sccache
+
+[target.x86_64-pc-windows-msvc]  # Windows 平台
+rustflags = [
+    "-C", "target-cpu=native",
+    "-C", "codegen-units=16",
+    "-C", "opt-level=3",
+]
+
+[profile.dev]
+opt-level = 1      # 开发模式使用较低的优化级别
+debug = 0          # 减少调试信息
+debug-assertions = true
+overflow-checks = true
+lto = false
+panic = 'unwind'
+incremental = true
+codegen-units = 16
+rpath = false

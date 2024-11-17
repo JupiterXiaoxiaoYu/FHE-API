@@ -1,0 +1,4 @@
+/target
+/test/node_modules
+/test/dist
+cuda-repo-wsl-ubuntu-12-3-local_12.3.1-1_amd64.deb
