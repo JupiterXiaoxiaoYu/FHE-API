@@ -7,9 +7,13 @@ use std::sync::Arc;
 use tfhe::prelude::*;
 use tfhe::{
     generate_keys, CompactCiphertextList, CompactPublicKey,
-    ConfigBuilder, FheUint8,
+    ConfigBuilder, CompressedFheUint8, FheUint8, set_server_key
 };
 use tower_http::limit::RequestBodyLimitLayer;
+use ring::signature::{self, KeyPair, Ed25519KeyPair};
+use ring::rand::SystemRandom;
+use std::collections::HashMap;
+use std::sync::RwLock;
 
 mod state;
 mod types;
@@ -25,6 +29,7 @@ async fn main() {
         .route("/get_public_key", get(get_fhe_public_key))
         .route("/encrypt", post(encrypt_data))
         .route("/compute", post(compute_sum))
+        .route("/decrypt", post(decrypt_data))
         .with_state(Arc::clone(&app_state))
         .layer(RequestBodyLimitLayer::new(10 * 1024 * 1024));
 
@@ -47,11 +52,16 @@ async fn generate_fhe_keys(
         )
         .build();
     
-    let (client_key, _) = generate_keys(config);
+    let (client_key, server_key) = generate_keys(config);
     let public_key = CompactPublicKey::new(&client_key);
+    
+    let mut server_keys = state.server_keys.write().await;
+    server_keys.insert(request.public_key.clone(), server_key.clone());
     
     let mut key_pairs = state.key_pairs.write().await;
     key_pairs.insert(request.public_key, (client_key, public_key.clone()));
+    
+    set_server_key(server_key);
     
     Json(KeyResponse {
         fhe_public_key: base64::encode(bincode::serialize(&public_key).unwrap()),
@@ -75,17 +85,12 @@ async fn encrypt_data(
     Json(request): Json<EncryptRequest>,
 ) -> Json<EncryptResponse> {
     let key_pairs = state.key_pairs.read().await;
-    let (_, public_key) = key_pairs.get(&request.public_key).unwrap();
+    let (client_key, _) = key_pairs.get(&request.public_key).unwrap();
     
-    let compact_list = CompactCiphertextList::builder(public_key)
-        .push(request.value)
-        .build();
-    
-    let encrypted = compact_list.expand().unwrap();
-    let encrypted_value: FheUint8 = encrypted.get(0).unwrap().unwrap();
+    let compressed = CompressedFheUint8::try_encrypt(request.value, client_key).unwrap();
     
     Json(EncryptResponse {
-        encrypted_value: base64::encode(bincode::serialize(&encrypted_value).unwrap()),
+        encrypted_value: base64::encode(bincode::serialize(&compressed).unwrap()),
     })
 }
 
@@ -93,11 +98,20 @@ async fn compute_sum(
     State(state): State<Arc<AppState>>,
     Json(request): Json<ComputeRequest>,
 ) -> Json<ComputeResponse> {
-    let _key_pairs = state.key_pairs.read().await;
+    let server_keys = state.server_keys.read().await;
+    let server_key = server_keys.get(&request.public_key).unwrap();
+
+    set_server_key(server_key.clone());
     
     let mut sum: Option<FheUint8> = None;
+    
     for encrypted_value in request.encrypted_values {
-        let value: FheUint8 = bincode::deserialize(&base64::decode(encrypted_value).unwrap()).unwrap();
+        let compressed: CompressedFheUint8 = bincode::deserialize(
+            &base64::decode(encrypted_value).unwrap()
+        ).unwrap();
+        
+        let value = compressed.decompress();
+        
         match sum {
             None => sum = Some(value),
             Some(ref mut s) => {
@@ -107,7 +121,34 @@ async fn compute_sum(
         }
     }
     
+    let result = sum.unwrap();
+    let compressed_result = result.compress();
+    let serialized_result = bincode::serialize(&compressed_result).unwrap();
+    
     Json(ComputeResponse {
-        result: base64::encode(bincode::serialize(&sum.unwrap()).unwrap()),
+        result: base64::encode(serialized_result),
+    })
+}
+
+async fn decrypt_data(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<DecryptRequest>,
+) -> Json<DecryptResponse> {
+    let key_pairs = state.key_pairs.read().await;
+    let (client_key, _) = key_pairs.get(&request.public_key).unwrap();
+    
+    let compressed: CompressedFheUint8 = bincode::deserialize(
+        &base64::decode(request.encrypted_value).unwrap()
+    ).unwrap();
+    
+    let value = compressed.decompress();
+    let decrypted_value: u8 = value.decrypt(client_key);
+    
+    let value_bytes = decrypted_value.to_le_bytes();
+    let signature = state.signing_key.sign(&value_bytes);
+    
+    Json(DecryptResponse {
+        value: decrypted_value,
+        signature: base64::encode(signature.as_ref()),
     })
 }

@@ -1,6 +1,25 @@
 const axios = require('axios');
+const http = require('http');
 
 const API_BASE_URL = 'http://localhost:3000';
+const DELAY_MS = 10000;
+
+// 创建 axios 实例，配置更长的超时时间和更大的数据限制
+const api = axios.create({
+    baseURL: API_BASE_URL,
+    timeout: 120000,  // 2分钟超时
+    maxContentLength: Infinity,
+    maxBodyLength: Infinity,
+    headers: {
+        'Content-Type': 'application/json',
+    },
+    // 禁用 keep-alive
+    httpAgent: new http.Agent({ 
+        keepAlive: false,
+        timeout: 120000
+    })
+});
+
 
 async function testFHEOperations() {
     try {
@@ -35,18 +54,33 @@ async function testFHEOperations() {
         }
 
         // 4. 计算加密数据的和
-        const computeResponse = await axios.post(`${API_BASE_URL}/compute`, {
-            task_id: "sum_task_1",
+        const finalResult = await axios.post(`${API_BASE_URL}/compute`, {
+            public_key: publicKey,
+            task_id: 'sum_task',
             data_type: "int8",
             encrypted_values: encryptedValues
         });
-        // console.log('Computation Result:', computeResponse.data);
-        console.log('Computation Result');
+        if (!finalResult) {
+            throw new Error('No result obtained from computation');
+        }
+        console.log('Final computation completed');
 
+        // 5. 解密结果
+        const decryptResponse = await axios.post(`${API_BASE_URL}/decrypt`, {
+            public_key: publicKey,
+            data_type: "int8",
+            encrypted_value: finalResult.data.result
+        });
+        console.log('Decrypted Result:', decryptResponse.data.value);
+    
     } catch (error) {
         console.error('Error during FHE operations:', error);
         if (axios.isAxiosError(error)) {
-            console.error('Response data:', error.response?.data);
+            if (error.response) {
+                console.error('Response status:', error.response.status);
+                // console.error('Response data:', error.response.data);
+            }
+            // console.error('Request data:', error.config?.data);
         }
     }
 }
