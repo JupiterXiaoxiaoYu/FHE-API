@@ -6,8 +6,9 @@ use axum::{
 use std::sync::Arc;
 use tfhe::prelude::*;
 use tfhe::{
-    generate_keys, CompactCiphertextList, CompactPublicKey,
-    ConfigBuilder, CompressedFheUint8, FheUint8, set_server_key
+    generate_keys, CompactCiphertextList, CompactPublicKey, CompressedCompactPublicKey,
+    ConfigBuilder, CompressedFheUint8, FheUint8, set_server_key,
+    CompressedServerKey
 };
 use tower_http::limit::RequestBodyLimitLayer;
 use ring::signature::{self, KeyPair, Ed25519KeyPair};
@@ -53,18 +54,24 @@ async fn generate_fhe_keys(
         .build();
     
     let (client_key, server_key) = generate_keys(config);
-    let public_key = CompactPublicKey::new(&client_key);
+    
+    let compressed_public_key = CompressedCompactPublicKey::new(&client_key);
+    let public_key = compressed_public_key.decompress();
+    
+    let compressed_server_key = CompressedServerKey::new(&client_key);
     
     let mut server_keys = state.server_keys.write().await;
-    server_keys.insert(request.public_key.clone(), server_key.clone());
+    server_keys.insert(request.public_key.clone(), compressed_server_key.clone());
     
     let mut key_pairs = state.key_pairs.write().await;
-    key_pairs.insert(request.public_key, (client_key, public_key.clone()));
+    key_pairs.insert(request.public_key, (client_key, public_key));
     
-    set_server_key(server_key);
+    let decompressed_server_key = compressed_server_key.decompress();
+    set_server_key(decompressed_server_key);
     
     Json(KeyResponse {
-        fhe_public_key: base64::encode(bincode::serialize(&public_key).unwrap()),
+        fhe_public_key: base64::encode(bincode::serialize(&compressed_public_key).unwrap()),
+        server_key: base64::encode(bincode::serialize(&compressed_server_key).unwrap()),
     })
 }
 
@@ -75,8 +82,11 @@ async fn get_fhe_public_key(
     let key_pairs = state.key_pairs.read().await;
     let (_, public_key) = key_pairs.get(&request.public_key).unwrap();
     
+    let compressed_public_key = CompressedCompactPublicKey::new(public_key);
+    
     Json(KeyResponse {
-        fhe_public_key: base64::encode(bincode::serialize(public_key).unwrap()),
+        fhe_public_key: base64::encode(bincode::serialize(&compressed_public_key).unwrap()),
+        server_key: "".to_string(),
     })
 }
 
@@ -99,9 +109,10 @@ async fn compute_sum(
     Json(request): Json<ComputeRequest>,
 ) -> Json<ComputeResponse> {
     let server_keys = state.server_keys.read().await;
-    let server_key = server_keys.get(&request.public_key).unwrap();
-
-    set_server_key(server_key.clone());
+    let compressed_server_key = server_keys.get(&request.public_key).unwrap();
+    
+    let server_key = compressed_server_key.decompress();
+    set_server_key(server_key);
     
     let mut sum: Option<FheUint8> = None;
     

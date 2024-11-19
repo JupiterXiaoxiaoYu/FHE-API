@@ -25,11 +25,14 @@ async function testFHEOperations() {
     try {
         // 1. 生成密钥
         const publicKey = "test_user_1";
+        const serverKey = "";
         const keyGenResponse = await axios.post(`${API_BASE_URL}/generate_keys`, {
-            public_key: publicKey
+            public_key: publicKey,
+            server_key: serverKey
         });
-        // console.log('Generated Keys:', keyGenResponse.data);
+        console.log('Generated Keys:', keyGenResponse.data);
         console.log('Generated Keys Generated');
+
 
         // 2. 获取FHE公钥
         const pubKeyResponse = await axios.get(`${API_BASE_URL}/get_public_key`, {
@@ -40,7 +43,7 @@ async function testFHEOperations() {
 
         // 3. 加密一些数据
         const encryptedValues = [];
-        const valuesToEncrypt = [1, 2, 3, 4, 5];
+        const valuesToEncrypt = [1, 2, 3, 4, 5, 6, 7];
         
         for (const value of valuesToEncrypt) {
             const encryptResponse = await axios.post(`${API_BASE_URL}/encrypt`, {
@@ -50,7 +53,7 @@ async function testFHEOperations() {
             });
             encryptedValues.push(encryptResponse.data.encrypted_value);
             // console.log(`Encrypted ${value}:`, encryptResponse.data);
-            console.log(`Encrypted ${value}`);
+            console.log(`Encrypted ${value}, type of encrypted_value: ${typeof encryptResponse.data.encrypted_value}`);
         }
 
         // 4. 计算加密数据的和

@@ -29,7 +29,8 @@ pub struct DecryptRequest {
 
 #[derive(Serialize)]
 pub struct KeyResponse {
-    pub fhe_public_key: String, // Base64 encoded
+    pub fhe_public_key: String,    // Base64 encoded
+    pub server_key: String,        // Base64 encoded
 }
 
 #[derive(Serialize)]
