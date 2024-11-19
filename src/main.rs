@@ -8,7 +8,7 @@ use tfhe::prelude::*;
 use tfhe::{
     generate_keys, CompactCiphertextList, CompactPublicKey, CompressedCompactPublicKey,
     ConfigBuilder, CompressedFheUint8, FheUint8, set_server_key,
-    CompressedServerKey
+    CompressedServerKey, 
 };
 use tower_http::limit::RequestBodyLimitLayer;
 use ring::signature::{self, KeyPair, Ed25519KeyPair};
@@ -56,22 +56,33 @@ async fn generate_fhe_keys(
     let (client_key, server_key) = generate_keys(config);
     
     let compressed_public_key = CompressedCompactPublicKey::new(&client_key);
-    let public_key = compressed_public_key.decompress();
-    
     let compressed_server_key = CompressedServerKey::new(&client_key);
+
+    println!(
+        "compressed public key size  : {}",
+        bincode::serialize(&compressed_public_key).unwrap().len()
+    );
+    println!(
+        "compressed server key size  : {}",
+        bincode::serialize(&compressed_server_key).unwrap().len()
+    );
+    println!(
+        "client key size            : {}",
+        bincode::serialize(&client_key).unwrap().len()
+    );
+    
+    let mut key_pairs = state.key_pairs.write().await;
+    key_pairs.insert(request.public_key.clone(), (client_key.clone(), compressed_public_key.decompress()));
     
     let mut server_keys = state.server_keys.write().await;
     server_keys.insert(request.public_key.clone(), compressed_server_key.clone());
     
-    let mut key_pairs = state.key_pairs.write().await;
-    key_pairs.insert(request.public_key, (client_key, public_key));
-    
-    let decompressed_server_key = compressed_server_key.decompress();
-    set_server_key(decompressed_server_key);
+    set_server_key(compressed_server_key.decompress());
     
     Json(KeyResponse {
         fhe_public_key: base64::encode(bincode::serialize(&compressed_public_key).unwrap()),
         server_key: base64::encode(bincode::serialize(&compressed_server_key).unwrap()),
+        client_key: base64::encode(bincode::serialize(&client_key).unwrap()),
     })
 }
 
@@ -84,9 +95,13 @@ async fn get_fhe_public_key(
     
     let compressed_public_key = CompressedCompactPublicKey::new(client_key);
     
+    let server_keys = state.server_keys.read().await;
+    let compressed_server_key = server_keys.get(&request.public_key).unwrap();
+    
     Json(KeyResponse {
         fhe_public_key: base64::encode(bincode::serialize(&compressed_public_key).unwrap()),
         server_key: "".to_string(),
+        client_key: "".to_string(),
     })
 }
 
@@ -111,8 +126,7 @@ async fn compute_sum(
     let server_keys = state.server_keys.read().await;
     let compressed_server_key = server_keys.get(&request.public_key).unwrap();
     
-    let server_key = compressed_server_key.decompress();
-    set_server_key(server_key);
+    set_server_key(compressed_server_key.decompress());
     
     let mut sum: Option<FheUint8> = None;
     
@@ -134,10 +148,9 @@ async fn compute_sum(
     
     let result = sum.unwrap();
     let compressed_result = result.compress();
-    let serialized_result = bincode::serialize(&compressed_result).unwrap();
     
     Json(ComputeResponse {
-        result: base64::encode(serialized_result),
+        result: base64::encode(bincode::serialize(&compressed_result).unwrap()),
     })
 }
 
