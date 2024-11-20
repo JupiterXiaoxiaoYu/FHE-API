@@ -9,7 +9,7 @@ pub struct KeyGenRequest {
 pub struct EncryptRequest {
     pub public_key: String,
     pub data_type: String,
-    pub value: u8,
+    pub value: u64,
 }
 
 #[derive(Deserialize)]
@@ -46,6 +46,6 @@ pub struct ComputeResponse {
 
 #[derive(Serialize)]
 pub struct DecryptResponse {
-    pub value: u8,
+    pub value: u64,
     pub signature: String, // Base64 encoded signature
 } 

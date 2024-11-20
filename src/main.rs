@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tfhe::prelude::*;
 use tfhe::{
     generate_keys, CompactCiphertextList, CompactPublicKey, CompressedCompactPublicKey,
-    ConfigBuilder, CompressedFheUint8, FheUint8, set_server_key,
+    ConfigBuilder, CompressedFheUint64, FheUint64, set_server_key,
     CompressedServerKey, 
 };
 use tower_http::limit::RequestBodyLimitLayer;
@@ -27,7 +27,7 @@ async fn main() {
 
     let app = Router::new()
         .route("/generate_keys", post(generate_fhe_keys))
-        .route("/get_public_key", get(get_fhe_public_key))
+        .route("/get_public_key", post(get_fhe_public_key))
         .route("/encrypt", post(encrypt_data))
         .route("/compute", post(compute_sum))
         .route("/decrypt", post(decrypt_data))
@@ -112,7 +112,7 @@ async fn encrypt_data(
     let key_pairs = state.key_pairs.read().await;
     let (client_key, _) = key_pairs.get(&request.public_key).unwrap();
     
-    let compressed = CompressedFheUint8::try_encrypt(request.value, client_key).unwrap();
+    let compressed = CompressedFheUint64::try_encrypt(request.value, client_key).unwrap();
     
     Json(EncryptResponse {
         encrypted_value: base64::encode(bincode::serialize(&compressed).unwrap()),
@@ -128,10 +128,10 @@ async fn compute_sum(
     
     set_server_key(compressed_server_key.decompress());
     
-    let mut sum: Option<FheUint8> = None;
+    let mut sum: Option<FheUint64> = None;
     
     for encrypted_value in request.encrypted_values {
-        let compressed: CompressedFheUint8 = bincode::deserialize(
+        let compressed: CompressedFheUint64 = bincode::deserialize(
             &base64::decode(encrypted_value).unwrap()
         ).unwrap();
         
@@ -161,12 +161,12 @@ async fn decrypt_data(
     let key_pairs = state.key_pairs.read().await;
     let (client_key, _) = key_pairs.get(&request.public_key).unwrap();
     
-    let compressed: CompressedFheUint8 = bincode::deserialize(
+    let compressed: CompressedFheUint64 = bincode::deserialize(
         &base64::decode(request.encrypted_value).unwrap()
     ).unwrap();
     
     let value = compressed.decompress();
-    let decrypted_value: u8 = value.decrypt(client_key);
+    let decrypted_value: u64 = value.decrypt(client_key);
     
     let value_bytes = decrypted_value.to_le_bytes();
     let signature = state.signing_key.sign(&value_bytes);
