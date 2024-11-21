@@ -72,7 +72,7 @@ async fn generate_fhe_keys(
     );
     
     let mut key_pairs = state.key_pairs.write().await;
-    key_pairs.insert(request.public_key.clone(), (client_key.clone(), compressed_public_key.decompress()));
+    key_pairs.insert(request.public_key.clone(), (client_key.clone(), compressed_public_key.clone()));
     
     let mut server_keys = state.server_keys.write().await;
     server_keys.insert(request.public_key.clone(), compressed_server_key.clone());
@@ -91,15 +91,13 @@ async fn get_fhe_public_key(
     Json(request): Json<KeyGenRequest>,
 ) -> Json<KeyResponse> {
     let key_pairs = state.key_pairs.read().await;
-    let (client_key, _) = key_pairs.get(&request.public_key).unwrap();
-    
-    let compressed_public_key = CompressedCompactPublicKey::new(client_key);
+    let (_, compressed_public_key) = key_pairs.get(&request.public_key).unwrap();
     
     let server_keys = state.server_keys.read().await;
     let compressed_server_key = server_keys.get(&request.public_key).unwrap();
     
     Json(KeyResponse {
-        fhe_public_key: base64::encode(bincode::serialize(&compressed_public_key).unwrap()),
+        fhe_public_key: base64::encode(bincode::serialize(compressed_public_key).unwrap()),
         server_key: "".to_string(),
         client_key: "".to_string(),
     })

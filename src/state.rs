@@ -1,11 +1,11 @@
 use std::collections::HashMap;
-use tfhe::{CompactPublicKey, ClientKey, CompressedServerKey};
+use tfhe::{ClientKey, CompressedCompactPublicKey, CompressedServerKey};
 use tokio::sync::RwLock;
 use ring::signature::Ed25519KeyPair;
 use ring::rand::SystemRandom;
 
 pub struct AppState {
-    pub key_pairs: RwLock<HashMap<String, (ClientKey, CompactPublicKey)>>,
+    pub key_pairs: RwLock<HashMap<String, (ClientKey, CompressedCompactPublicKey)>>,
     pub server_keys: RwLock<HashMap<String, CompressedServerKey>>,
     pub signing_key: Ed25519KeyPair,
 }
