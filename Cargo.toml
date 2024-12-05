@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-tfhe = { version = "0.8.7", features = ["boolean", "shortint", "integer", "x86_64-unix", "gpu"] }
+tfhe = { version = "0.8.7", features = ["boolean", "shortint", "integer", "x86_64-unix", "gpu", "zk-pok"] }
 tokio = { version = "1.28", features = ["full"] }
 axum = "0.6"
 serde = { version = "1.0", features = ["derive"] }
@@ -19,6 +19,8 @@ base64 = "0.13"
 bincode = "1.3.3"
 ring = "0.16"
 tower-http = { version = "0.4", features = ["limit"] }
+once_cell = "1.18"
 
 [profile.dev]
 opt-level = 1  # 默认是 0，可以设置为 1 在保持编译速度的同时提升一些运行速度
+
