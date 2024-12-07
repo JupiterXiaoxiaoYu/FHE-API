@@ -10,33 +10,16 @@ use tfhe::{
     ConfigBuilder, CompressedFheUint64, FheUint64, set_server_key,
     CompressedServerKey, 
 };
-use tfhe::zk::{CompactPkeCrs, ZkComputeLoad};
 use tower_http::limit::RequestBodyLimitLayer;
 use ring::signature::{self, KeyPair, Ed25519KeyPair};
 use ring::rand::SystemRandom;
 use std::collections::HashMap;
 use std::sync::RwLock;
-use once_cell::sync::Lazy;
 
 mod state;
 mod types;
 use state::AppState;
 use types::*;
-
-// Define global variables
-static CONFIG: Lazy<tfhe::Config> = Lazy::new(|| {
-    let params = tfhe::shortint::parameters::PARAM_MESSAGE_2_CARRY_2_KS_PBS_TUNIFORM_2M64;
-    let cpk_params = tfhe::shortint::parameters::compact_public_key_only::p_fail_2_minus_64::ks_pbs::PARAM_PKE_MESSAGE_2_CARRY_2_KS_PBS_TUNIFORM_2M64;
-    let casting_params = tfhe::shortint::parameters::key_switching::p_fail_2_minus_64::ks_pbs::PARAM_KEYSWITCH_MESSAGE_2_CARRY_2_KS_PBS_TUNIFORM_2M64;
-
-    ConfigBuilder::with_custom_parameters(params)
-        .use_dedicated_compact_public_key_parameters((cpk_params, casting_params))
-        .build()
-});
-
-static CRS: Lazy<CompactPkeCrs> = Lazy::new(|| {
-    CompactPkeCrs::from_config(CONFIG.clone().into(), 64).unwrap()
-});
 
 #[tokio::main]
 async fn main() {
@@ -64,7 +47,14 @@ async fn generate_fhe_keys(
     State(state): State<Arc<AppState>>,
     Json(request): Json<KeyGenRequest>,
 ) -> Json<KeyResponse> {
-    let (client_key, server_key) = generate_keys(CONFIG.clone());
+    let config = ConfigBuilder::default()
+        .use_custom_parameters(
+            tfhe::shortint::parameters::PARAM_MESSAGE_2_CARRY_2_COMPACT_PK_KS_PBS,
+        )
+        .build();
+    
+    let (client_key, server_key) = generate_keys(config);
+    
     let compressed_public_key = CompressedCompactPublicKey::new(&client_key);
     let compressed_server_key = CompressedServerKey::new(&client_key);
 
@@ -118,35 +108,10 @@ async fn encrypt_data(
     Json(request): Json<EncryptRequest>,
 ) -> Json<EncryptResponse> {
     let key_pairs = state.key_pairs.read().await;
-    let public_zk_params = CRS.public_params();
-    let (client_key, compressed_public_key) = key_pairs.get(&request.public_key).unwrap();
-
-    let public_key = compressed_public_key.decompress();
-    let server_keys = state.server_keys.read().await;
-    let compressed_server_key = server_keys.get(&request.public_key).unwrap();
-    
-    set_server_key(compressed_server_key.decompress());
+    let (client_key, _) = key_pairs.get(&request.public_key).unwrap();
     
     let compressed = CompressedFheUint64::try_encrypt(request.value, client_key).unwrap();
-    let metadata = [b'T', b'F', b'H', b'E', b'-', b'r', b's'];
-    let proven_compact_list = match tfhe::ProvenCompactCiphertextList::builder(&public_key)
-        .push(request.value)
-        .build_with_proof_packed(public_zk_params, &metadata, ZkComputeLoad::Verify)
-    {
-        Ok(list) => list,
-        Err(e) => return Json(EncryptResponse {
-            encrypted_value: format!("Error: {:?}", e),
-        }),
-    };
-
-    // Verify the ciphertexts
-    let expander = match proven_compact_list.verify_and_expand(public_zk_params, &public_key, &metadata) {
-        Ok(exp) => exp,
-        Err(e) => return Json(EncryptResponse {
-            encrypted_value: format!("Error: {:?}", e),
-        }),
-    };
-
+    
     Json(EncryptResponse {
         encrypted_value: base64::encode(bincode::serialize(&compressed).unwrap()),
     })
