@@ -158,6 +158,9 @@ async fn decrypt_data(
 ) -> Json<DecryptResponse> {
     let key_pairs = state.key_pairs.read().await;
     let (client_key, _) = key_pairs.get(&request.public_key).unwrap();
+    let server_keys = state.server_keys.read().await;
+    let compressed_server_key = server_keys.get(&request.public_key).unwrap();
+    set_server_key(compressed_server_key.decompress());
     
     let compressed: CompressedFheUint64 = bincode::deserialize(
         &base64::decode(request.encrypted_value).unwrap()
